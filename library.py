@@ -2,25 +2,27 @@ import pandas as pd
 import numpy as np
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.pipeline import Pipeline
-
+from sklearn.metrics import f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier
+pd.options.mode.chained_assignment = None
+  
 class MappingTransformer(BaseEstimator, TransformerMixin):
     def __init__(self, mapping_column, mapping_dict:dict):
-        assert isinstance(mapping_dict, dict), f'{self.__class__.__name__} constructor expected dictionary but got {type(mapping_dict)} instead.' #f'{self.__class__.__name__} gets class name
+        assert isinstance(mapping_dict, dict), f'{self.__class__.__name__} constructor expected dictionary but got {type(mapping_dict)} instead.'
         self.mapping_dict = mapping_dict
-        self.mapping_column = mapping_column  #column to focus on
+        self.mapping_column = mapping_column
     def fit(self, X, y = None):
         print(f"\nWarning: {self.__class__.__name__}.fit does nothing.\n")
         return X
     def transform(self, X):
         assert isinstance(X, pd.core.frame.DataFrame), f'{self.__class__.__name__}.transform expected Dataframe but got {type(X)} instead.'
-        assert self.mapping_column in X.columns.to_list(), f'{self.__class__.__name__}.transform unknown column "{self.mapping_column}"'  #column legit?
-        #now check to see if all keys are contained in column
+        assert self.mapping_column in X.columns.to_list(), f'{self.__class__.__name__}.transform unknown column "{self.mapping_column}"'
         column_set = set(X[self.mapping_column])
         keys_not_found = set(self.mapping_dict.keys()) - column_set
         if keys_not_found:
             print(f"\nWarning: {self.__class__.__name__}[{self.mapping_column}] does not contain these keys as values {keys_not_found}\n")
 
-        #now check to see if some keys are absent
         keys_absent = column_set -  set(self.mapping_dict.keys())
         if keys_absent:
             print(f"\nWarning: {self.__class__.__name__}[{self.mapping_column}] does not contain keys for these values {keys_absent}\n")
@@ -34,7 +36,7 @@ class MappingTransformer(BaseEstimator, TransformerMixin):
         return result
       
 class DropColumnsTransformer(BaseEstimator, TransformerMixin):
-    def __init__(self, column_list, action):
+    def __init__(self, column_list, action="drop"):
         assert action in ['keep', 'drop'], f'{self.__class__.__name__} action {action} not in ["keep", "drop"]'
         self.column_list=column_list
         self.action=action
@@ -64,6 +66,8 @@ class DropColumnsTransformer(BaseEstimator, TransformerMixin):
 class OHETransformer(BaseEstimator, TransformerMixin):
     def __init__(self, target_column, dummy_na=False, drop_first=False):  
         self.target_column = target_column
+        self.dummy_na=dummy_na
+        self.drop_first=drop_first
 
     def fit(self, X, y = None):
         print(f"\nWarning: {self.__class__.__name__}.fit does nothing.\n")
@@ -73,7 +77,7 @@ class OHETransformer(BaseEstimator, TransformerMixin):
         assert isinstance(X, pd.core.frame.DataFrame), f'{self.__class__.__name__}.transform expected Dataframe but got {type(X)} instead.'
         assert self.target_column in X.columns.to_list(), f'{self.__class__.__name__}.transform unknown column "{self.target_column}"'
         X_ = X.copy()
-        X_=pd.get_dummies(X,prefix=self.target_column,prefix_sep='_', columns=[self.target_column],dummy_na=False, drop_first=False)
+        X_=pd.get_dummies(X,prefix=self.target_column,prefix_sep='_', columns=[self.target_column],dummy_na=self.dummy_na, drop_first=self.drop_first)
         return X_
 
     def fit_transform(self, X, y = None):
@@ -144,8 +148,8 @@ class TukeyTransformer(BaseEstimator, TransformerMixin):
     def fit_transform(self, X, y = None):
         result = self.transform(X)
         return result
-    
-    
+      
+      
 class MinMaxTransformer(BaseEstimator, TransformerMixin):
     def __init__(self):
         pass 
@@ -155,7 +159,7 @@ class MinMaxTransformer(BaseEstimator, TransformerMixin):
         return X
 
     def transform(self, X):
-        X_=X.copy()
+        X_=X.copy() 
         from sklearn.preprocessing import MinMaxScaler
         scaler=MinMaxScaler()
         column_name=X_.columns.to_list()
@@ -165,36 +169,44 @@ class MinMaxTransformer(BaseEstimator, TransformerMixin):
     def fit_transform(self, X, y = None):
         result = self.transform(X)
         return result
-    
-    
-    
+
+
 class KNNTransformer(BaseEstimator, TransformerMixin):
-  
-  def __init__(self,n_neighbors=5, weights="uniform"):
-      from sklearn.impute import KNNImputer
-
-      self.n_neighbors = n_neighbors
-
-      self.weights = weights
-      self.KNNImputer=KNNImputer
-
+    def __init__(self,n_neighbors=5, weights="uniform"):
+        from sklearn.impute import KNNImputer
+        self.n_neighbors = n_neighbors
+        self.weights = weights
+        self.KNNImputer=KNNImputer
      
 
-  def fit(self, X, y = None):
-      print(f"\nWarning: {self.__class__.__name__}.fit does nothing.\n")
-
-      return X
+    def fit(self, X, y = None):
+        print(f"\nWarning: {self.__class__.__name__}.fit does nothing.\n")
+        return X
       
-  def transform(self, X):
-      imputer=self.KNNImputer(n_neighbors=self.n_neighbors,weights=self.weights,add_indicator=False)
-      column_name=X.columns.to_list()
+    def transform(self, X):
+        imputer=self.KNNImputer(n_neighbors=self.n_neighbors,weights=self.weights,add_indicator=False)
+        column_name=X.columns.to_list()
+        imputer_df = pd.DataFrame(imputer.fit_transform(X), columns = column_name)
+        return imputer_df
 
-      imputer_df = pd.DataFrame(imputer.fit_transform(X), columns = column_name)
-      return imputer_df
+    def fit_transform(self, X, y = None):
+        result = self.transform(X)
+        return result
+      
+      
+def find_random_state(features_df, labels, n=200):
+    model = KNeighborsClassifier(n_neighbors=5)
+    var = []  
+    for i in range(1, n):
+        train_X, test_X, train_y, test_y = train_test_split(features_df, labels, test_size=0.2, shuffle=True,random_state=i, stratify=labels)
+        model.fit(train_X, train_y) 
+        train_pred = model.predict(train_X)           
+        test_pred = model.predict(test_X)             
+        train_f1 = f1_score(train_y, train_pred)   
+        test_f1 = f1_score(test_y, test_pred)      
+        f1_ratio = test_f1/train_f1          
+        var.append(f1_ratio)
 
-  def fit_transform(self, X, y = None):
-    result = self.transform(X)
-    
-    return result
-
-
+    rs_value = sum(var)/len(var)
+    rs_id = np.array(abs(var - rs_value)).argmin()
+    return rs_id 
